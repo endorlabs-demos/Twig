@@ -1,0 +1,67 @@
+name: Endor Labs Scan
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: "Enter the target Endor Labs API"
+        required: true
+        type: choice
+        default: https://api.endorlabs.com
+        options:
+        - https://api.staging.endorlabs.com
+        - https://api.endorlabs.com
+      tenant_name:
+        description: "Enter your Endor Labs namespace?"
+        required: true
+        type: string
+jobs:
+  scan-repo:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+        - name: Setup namespace Environment Variables
+          run: | 
+            NAMESPACE=$(jq -r '.inputs.tenant_name' $GITHUB_EVENT_PATH)
+            echo "::add-mask::$NAMESPACE" 
+            echo NAMESPACE=$NAMESPACE >> $GITHUB_ENV
+
+        - name: Checkout Repository
+          uses: actions/checkout@v3
+          
+        - name: "Set-up PHP"
+          uses: shivammathur/setup-php@v2
+          with:
+            php-version: 8.2
+            coverage: none
+            tools: "composer:v2"
+
+        - name: Get composer cache directory
+          id: composercache
+          working-directory: doc/_build
+          run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+        - name: Cache dependencies
+          uses: actions/cache@v3
+          with:
+            path: ${{ steps.composercache.outputs.dir }}
+            key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+            restore-keys: ${{ runner.os }}-composer-
+
+        - name: "Install dependencies"
+          working-directory: doc/_build
+          run: composer install --prefer-dist --no-progress
+            
+        - name: Endor Labs Workflow Dispatch
+          if: ${{ github.event_name == 'workflow_dispatch' }}
+          uses: endorlabs/github-action@736c93ea52b002f2ac229aaeb273b102cbf6fe12
+          with:
+            namespace: ${{ github.event.inputs.tenant_name }}
+            scan_summary_output_type: "table"
+            pr: "false"
+            enable_github_action_token: "true"
+            scan_dependencies: "true"
+            scan_secrets: "true"
+            scan_git_logs: "true"
+            additional_args: "--as-default-branch --api=${{ github.event.inputs.api }}"
